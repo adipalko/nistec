@@ -49,6 +49,40 @@ const getWorkCenter = (row: any) =>
 
 const getTeam = (row: any) => row['צוות'] || '';
 
+const getRemainingToExecute = (row: any): number | null => {
+  const directKeys = [
+    'יתרה לביצוע',
+    'יתרה',
+    'Remaining To Execute',
+    'Remaining to Execute',
+    'Balance To Complete',
+    'Balance to Complete',
+  ];
+
+  for (const key of directKeys) {
+    const val = row[key];
+    if (val !== undefined && val !== null && val !== '') {
+      const num = parseFloat(String(val).replace(/,/g, '').replace(/\s/g, ''));
+      if (!isNaN(num)) return num;
+    }
+  }
+
+  // Fallback: search for any key that includes the Hebrew phrase
+  const dynamicKey = Object.keys(row).find(
+    key =>
+      key.includes('יתרה') && key.includes('ביצוע')
+  );
+  if (dynamicKey) {
+    const val = row[dynamicKey];
+    if (val !== undefined && val !== null && val !== '') {
+      const num = parseFloat(String(val).replace(/,/g, '').replace(/\s/g, ''));
+      if (!isNaN(num)) return num;
+    }
+  }
+
+  return null;
+};
+
 // Helper function to get supply completion date as Date object for sorting
 const getSupplyCompletionDateAsDate = (row: any): Date | null => {
   // Get the quantity value
@@ -255,6 +289,17 @@ const PrioritizationResults: React.FC<PrioritizationResultsProps> = ({ stations 
       else if (!supplyDateA && supplyDateB) return 1;
 
       // Second priority: Internal priority (עדיפות)
+      const remainingA = getRemainingToExecute(a);
+      const remainingB = getRemainingToExecute(b);
+
+      if (remainingA !== null && remainingB === null) return -1;
+      if (remainingA === null && remainingB !== null) return 1;
+      if (remainingA !== null && remainingB !== null) {
+        const diff = remainingA - remainingB;
+        if (diff !== 0) return diff;
+      }
+
+      // Third priority: Internal priority (עדיפות)
       const prioA = getPriorityNumber(a['הערות מנהל פרויקט'] || a['Internal Priority']);
       const prioB = getPriorityNumber(b['הערות מנהל פרויקט'] || b['Internal Priority']);
 
@@ -273,12 +318,22 @@ const PrioritizationResults: React.FC<PrioritizationResultsProps> = ({ stations 
   // Get all unique headers from the prioritized data
   const allHeaders = prioritized.length > 0 ? Object.keys(prioritized[0]) : [];
   const visibleHeaders = allHeaders.filter(h => !HIDDEN_COLUMNS.includes(h));
-  
-  // Add the calculated column "תאריך סיום אספקות" to visible headers (if not already present)
+
+  const expectedCompletionIndex = visibleHeaders.indexOf('מועד סיום צפוי');
+
   const SUPPLY_COMPLETION_COLUMN = 'תאריך סיום אספקות';
-  const headersWithCalculated = visibleHeaders.includes(SUPPLY_COMPLETION_COLUMN) 
-    ? visibleHeaders 
-    : [...visibleHeaders, SUPPLY_COMPLETION_COLUMN];
+  let headersWithCalculated: string[];
+  if (visibleHeaders.includes(SUPPLY_COMPLETION_COLUMN)) {
+    headersWithCalculated = visibleHeaders;
+  } else if (expectedCompletionIndex !== -1) {
+    headersWithCalculated = [
+      ...visibleHeaders.slice(0, expectedCompletionIndex + 1),
+      SUPPLY_COMPLETION_COLUMN,
+      ...visibleHeaders.slice(expectedCompletionIndex + 1),
+    ];
+  } else {
+    headersWithCalculated = [...visibleHeaders, SUPPLY_COMPLETION_COLUMN];
+  }
 
   return (
     <div className="overflow-x-auto">
@@ -401,9 +456,20 @@ function exportToCSV(data: any[], headers: string[]) {
 
   // Add calculated column to headers if not present
   const SUPPLY_COMPLETION_COLUMN = 'תאריך סיום אספקות';
-  const exportHeaders = headers.includes(SUPPLY_COMPLETION_COLUMN) 
-    ? headers 
-    : [...headers, SUPPLY_COMPLETION_COLUMN];
+  const expectedCompletionIndex = headers.indexOf('מועד סיום צפוי');
+
+  let exportHeaders: string[];
+  if (headers.includes(SUPPLY_COMPLETION_COLUMN)) {
+    exportHeaders = headers;
+  } else if (expectedCompletionIndex !== -1) {
+    exportHeaders = [
+      ...headers.slice(0, expectedCompletionIndex + 1),
+      SUPPLY_COMPLETION_COLUMN,
+      ...headers.slice(expectedCompletionIndex + 1),
+    ];
+  } else {
+    exportHeaders = [...headers, SUPPLY_COMPLETION_COLUMN];
+  }
   
   // Add rank column as first column
   const exportHeadersWithRank = ['#', ...exportHeaders];
@@ -432,6 +498,17 @@ function exportToCSV(data: any[], headers: string[]) {
         else if (!supplyDateA && supplyDateB) return 1;
 
         // Second priority: Internal priority (עדיפות)
+        const remainingA = getRemainingToExecute(a);
+        const remainingB = getRemainingToExecute(b);
+
+        if (remainingA !== null && remainingB === null) return -1;
+        if (remainingA === null && remainingB !== null) return 1;
+        if (remainingA !== null && remainingB !== null) {
+          const diff = remainingA - remainingB;
+          if (diff !== 0) return diff;
+        }
+
+        // Third priority: Internal priority (עדיפות)
         const prioA = getPriorityNumber(a['הערות מנהל פרויקט'] || a['Internal Priority']);
         const prioB = getPriorityNumber(b['הערות מנהל פרויקט'] || b['Internal Priority']);
 
