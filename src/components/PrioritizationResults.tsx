@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { FileDown } from 'lucide-react';
+import * as XLSX from 'xlsx';
 
 function formatDate(dateStr: string) {
   if (!dateStr) return '';
@@ -83,6 +84,67 @@ const getRemainingToExecute = (row: any): number | null => {
   return null;
 };
 
+const parseDateValue = (value: any): Date | null => {
+  if (value === undefined || value === null || value === '') return null;
+  const dateStr = String(value);
+  if (!isNaN(Number(dateStr)) && dateStr.trim() !== '') {
+    const excelEpoch = new Date(Date.UTC(1899, 11, 30));
+    const days = Number(dateStr);
+    const parsedDate = new Date(excelEpoch);
+    parsedDate.setDate(parsedDate.getDate() + days);
+    return parsedDate;
+  }
+  const dateParts = dateStr.split('.');
+  if (dateParts.length === 3) {
+    const day = parseInt(dateParts[0], 10);
+    const month = parseInt(dateParts[1], 10) - 1;
+    const year = parseInt(dateParts[2], 10);
+    const parsedDate = new Date(year, month, day);
+    return isNaN(parsedDate.getTime()) ? null : parsedDate;
+  }
+  const parsed = new Date(dateStr);
+  return isNaN(parsed.getTime()) ? null : parsed;
+};
+
+const getExpectedCompletionDate = (row: any): Date | null => {
+  const expectedDateStr = row['מועד סיום צפוי'] || row['Expected Completion Date'] || '';
+  return parseDateValue(expectedDateStr);
+};
+
+const sortStations = (rows: any[]) =>
+  rows.slice().sort((a, b) => {
+    const supplyDateA = getSupplyCompletionDateAsDate(a);
+    const supplyDateB = getSupplyCompletionDateAsDate(b);
+
+    if (supplyDateA && supplyDateB) {
+      const diff = supplyDateA.getTime() - supplyDateB.getTime();
+      if (diff !== 0) return diff;
+    } else if (supplyDateA && !supplyDateB) return -1;
+    else if (!supplyDateA && supplyDateB) return 1;
+
+    const remainingA = getRemainingToExecute(a);
+    const remainingB = getRemainingToExecute(b);
+
+    if (remainingA !== null && remainingB === null) return -1;
+    if (remainingA === null && remainingB !== null) return 1;
+    if (remainingA !== null && remainingB !== null) {
+      const diff = remainingA - remainingB;
+      if (diff !== 0) return diff;
+    }
+
+    const prioA = getPriorityNumber(a['הערות מנהל פרויקט'] || a['Internal Priority']);
+    const prioB = getPriorityNumber(b['הערות מנהל פרויקט'] || b['Internal Priority']);
+
+    if (prioA !== null && prioB === null) return -1;
+    if (prioA === null && prioB !== null) return 1;
+
+    if (prioA !== null && prioB !== null) {
+      if (prioA !== prioB) return prioA - prioB;
+    }
+
+    return 0;
+  });
+
 // Helper function to get supply completion date as Date object for sorting
 const getSupplyCompletionDateAsDate = (row: any): Date | null => {
   // Get the quantity value
@@ -107,33 +169,8 @@ const getSupplyCompletionDateAsDate = (row: any): Date | null => {
   
   const quantity = parseFloat(String(quantityValue).replace(/,/g, '').replace(/\s/g, ''));
   
-  // Get expected completion date
-  const expectedDateStr = row['מועד סיום צפוי'] || row['Expected Completion Date'] || '';
-  if (!expectedDateStr) return null;
-  
-  // Parse the expected date
-  let expectedDate: Date;
-  const dateStr = String(expectedDateStr);
-  if (!isNaN(Number(dateStr)) && dateStr.trim() !== '') {
-    // Excel serial date
-    const excelEpoch = new Date(Date.UTC(1899, 11, 30));
-    const days = Number(dateStr);
-    expectedDate = new Date(excelEpoch);
-    expectedDate.setDate(expectedDate.getDate() + days);
-  } else {
-    // Try parsing as date string (handle DD.MM.YYYY format)
-    const dateParts = dateStr.split('.');
-    if (dateParts.length === 3) {
-      const day = parseInt(dateParts[0], 10);
-      const month = parseInt(dateParts[1], 10) - 1;
-      const year = parseInt(dateParts[2], 10);
-      expectedDate = new Date(year, month, day);
-    } else {
-      expectedDate = new Date(dateStr);
-    }
-  }
-  
-  if (isNaN(expectedDate.getTime())) return null;
+  const expectedDate = getExpectedCompletionDate(row);
+  if (!expectedDate) return null;
   
   // Calculate supply completion date
   let supplyDate: Date;
@@ -187,44 +224,14 @@ const calculateSupplyCompletionDate = (row: any): string => {
   console.log('Quantity value (parsed):', quantity);
   console.log('Is quantity > 30?', quantity > 30);
   
-  // Get expected completion date (מועד סיום צפוי)
-  const expectedDateStr = row['מועד סיום צפוי'] || row['Expected Completion Date'] || '';
-  console.log('Expected date (raw):', expectedDateStr);
+  const expectedDate = getExpectedCompletionDate(row);
+  console.log('Expected date (raw):', row['מועד סיום צפוי'] || row['Expected Completion Date'] || '');
   
-  if (!expectedDateStr) {
+  if (!expectedDate) {
     console.log('No expected date found, returning empty');
     return '';
   }
-  
-  // Parse the expected date (handle Excel serial numbers)
-  let expectedDate: Date;
-  const dateStr = String(expectedDateStr);
-  if (!isNaN(Number(dateStr)) && dateStr.trim() !== '') {
-    // Excel serial date
-    const excelEpoch = new Date(Date.UTC(1899, 11, 30));
-    const days = Number(dateStr);
-    expectedDate = new Date(excelEpoch);
-    expectedDate.setDate(expectedDate.getDate() + days);
-    console.log('Parsed as Excel serial date:', expectedDate);
-  } else {
-    // Try parsing as date string (handle DD.MM.YYYY format)
-    const dateParts = dateStr.split('.');
-    if (dateParts.length === 3) {
-      const day = parseInt(dateParts[0], 10);
-      const month = parseInt(dateParts[1], 10) - 1; // Months are 0-indexed
-      const year = parseInt(dateParts[2], 10);
-      expectedDate = new Date(year, month, day);
-      console.log('Parsed as DD.MM.YYYY:', { day, month: month + 1, year }, '->', expectedDate);
-    } else {
-      expectedDate = new Date(dateStr);
-      console.log('Parsed as standard date string:', expectedDate);
-    }
-  }
-  
-  if (isNaN(expectedDate.getTime())) {
-    console.log('Invalid date, returning empty');
-    return '';
-  }
+  console.log('Parsed expected date:', expectedDate);
   
   // Calculate supply completion date
   let supplyDate: Date;
@@ -269,51 +276,15 @@ const PrioritizationResults: React.FC<PrioritizationResultsProps> = ({ stations 
   }, [selectedWorkCenter, tuTeams, selectedTeam]);
 
   // Prioritize and filter for the active tab
-  const prioritized = stations
-    .filter((s) => {
-      const matchesWorkCenter = getWorkCenter(s) === selectedWorkCenter;
-      if (selectedWorkCenter === 'TU' && selectedTeam) {
-        return matchesWorkCenter && getTeam(s) === selectedTeam;
-      }
-      return matchesWorkCenter;
-    })
-    .sort((a, b) => {
-      // First priority: תאריך סיום אספקות (supply completion date)
-      const supplyDateA = getSupplyCompletionDateAsDate(a);
-      const supplyDateB = getSupplyCompletionDateAsDate(b);
-      
-      if (supplyDateA && supplyDateB) {
-        const diff = supplyDateA.getTime() - supplyDateB.getTime();
-        if (diff !== 0) return diff;
-      } else if (supplyDateA && !supplyDateB) return -1;
-      else if (!supplyDateA && supplyDateB) return 1;
+  const filteredStations = stations.filter((s) => {
+    const matchesWorkCenter = getWorkCenter(s) === selectedWorkCenter;
+    if (selectedWorkCenter === 'TU' && selectedTeam) {
+      return matchesWorkCenter && getTeam(s) === selectedTeam;
+    }
+    return matchesWorkCenter;
+  });
 
-      // Second priority: Internal priority (עדיפות)
-      const remainingA = getRemainingToExecute(a);
-      const remainingB = getRemainingToExecute(b);
-
-      if (remainingA !== null && remainingB === null) return -1;
-      if (remainingA === null && remainingB !== null) return 1;
-      if (remainingA !== null && remainingB !== null) {
-        const diff = remainingA - remainingB;
-        if (diff !== 0) return diff;
-      }
-
-      // Third priority: Internal priority (עדיפות)
-      const prioA = getPriorityNumber(a['הערות מנהל פרויקט'] || a['Internal Priority']);
-      const prioB = getPriorityNumber(b['הערות מנהל פרויקט'] || b['Internal Priority']);
-
-      // Rows with priority come first
-      if (prioA !== null && prioB === null) return -1;
-      if (prioA === null && prioB !== null) return 1;
-
-      // If both have priority, sort by priority number
-      if (prioA !== null && prioB !== null) {
-        if (prioA !== prioB) return prioA - prioB;
-      }
-
-      return 0;
-    });
+  const prioritized = sortStations(filteredStations);
 
   // Get all unique headers from the prioritized data
   const allHeaders = prioritized.length > 0 ? Object.keys(prioritized[0]) : [];
@@ -343,8 +314,8 @@ const PrioritizationResults: React.FC<PrioritizationResultsProps> = ({ stations 
           {prioritized.length > 0 && (
             <button
               className="text-blue-600 hover:text-blue-800 p-1"
-              onClick={() => exportToCSV(stations, allHeaders)}
-              title="Download CSV"
+              onClick={() => exportToExcel(stations, headersWithCalculated)}
+              title="Download Excel"
             >
               <FileDown size={22} />
             </button>
@@ -427,34 +398,7 @@ const PrioritizationResults: React.FC<PrioritizationResultsProps> = ({ stations 
   );
 };
 
-function exportToCSV(data: any[], headers: string[]) {
-  // Group by work center and team (same logic as tabs)
-  const getWorkCenter = (row: any) =>
-    row['מרכז עבודה'] || row['Station Name'] || row['תחנה'] || row['תחנת עבודה'] || row['station'] || '';
-  const getTeam = (row: any) => row['צוות'] || '';
-  
-  const tabGroups: { label: string; workCenter: string; team?: string }[] = [];
-  const workCenters = Array.from(new Set(data.map(getWorkCenter).filter(Boolean)));
-
-  workCenters.forEach((workCenter) => {
-    if (workCenter === 'TU') {
-      // For TU, create tabs by team
-      const tuStations = data.filter(s => getWorkCenter(s) === 'TU');
-      const teams = Array.from(new Set(tuStations.map(getTeam).filter(Boolean)));
-      if (teams.length > 0) {
-        teams.forEach((team) => {
-          tabGroups.push({ label: `TU - ${team}`, workCenter: 'TU', team });
-        });
-      } else {
-        tabGroups.push({ label: 'TU', workCenter: 'TU' });
-      }
-    } else {
-      // For other work centers, just show the work center
-      tabGroups.push({ label: workCenter, workCenter });
-    }
-  });
-
-  // Add calculated column to headers if not present
+function exportToExcel(data: any[], headers: string[]) {
   const SUPPLY_COMPLETION_COLUMN = 'תאריך סיום אספקות';
   const expectedCompletionIndex = headers.indexOf('מועד סיום צפוי');
 
@@ -470,87 +414,70 @@ function exportToCSV(data: any[], headers: string[]) {
   } else {
     exportHeaders = [...headers, SUPPLY_COMPLETION_COLUMN];
   }
-  
-  // Add rank column as first column
+
   const exportHeadersWithRank = ['#', ...exportHeaders];
 
-  const csvRows = [exportHeadersWithRank.join(',')];
+  const getWorkCenterLocal = (row: any) =>
+    row['מרכז עבודה'] || row['Station Name'] || row['תחנה'] || row['תחנת עבודה'] || row['station'] || '';
+  const getTeamLocal = (row: any) => row['צוות'] || '';
 
-  tabGroups.forEach((group, idx) => {
-    // Filter and sort for this group
-    const groupData = data
-      .filter((row) => {
-        const matchesWorkCenter = getWorkCenter(row) === group.workCenter;
-        if (group.workCenter === 'TU' && group.team) {
-          return matchesWorkCenter && getTeam(row) === group.team;
-        }
-        return matchesWorkCenter;
-      })
-      .sort((a, b) => {
-        // First priority: תאריך סיום אספקות (supply completion date)
-        const supplyDateA = getSupplyCompletionDateAsDate(a);
-        const supplyDateB = getSupplyCompletionDateAsDate(b);
-        
-        if (supplyDateA && supplyDateB) {
-          const diff = supplyDateA.getTime() - supplyDateB.getTime();
-          if (diff !== 0) return diff;
-        } else if (supplyDateA && !supplyDateB) return -1;
-        else if (!supplyDateA && supplyDateB) return 1;
+  const tabGroups: { label: string; rows: any[] }[] = [];
+  const workCenters = Array.from(new Set(data.map(getWorkCenterLocal).filter(Boolean)));
 
-        // Second priority: Internal priority (עדיפות)
-        const remainingA = getRemainingToExecute(a);
-        const remainingB = getRemainingToExecute(b);
-
-        if (remainingA !== null && remainingB === null) return -1;
-        if (remainingA === null && remainingB !== null) return 1;
-        if (remainingA !== null && remainingB !== null) {
-          const diff = remainingA - remainingB;
-          if (diff !== 0) return diff;
-        }
-
-        // Third priority: Internal priority (עדיפות)
-        const prioA = getPriorityNumber(a['הערות מנהל פרויקט'] || a['Internal Priority']);
-        const prioB = getPriorityNumber(b['הערות מנהל פרויקט'] || b['Internal Priority']);
-
-        // Rows with priority come first
-        if (prioA !== null && prioB === null) return -1;
-        if (prioA === null && prioB !== null) return 1;
-
-        // If both have priority, sort by priority number
-        if (prioA !== null && prioB !== null) {
-          if (prioA !== prioB) return prioA - prioB;
-        }
-
-        return 0;
+  workCenters.forEach((workCenter) => {
+    if (workCenter === 'TU') {
+      const tuStations = data.filter(s => getWorkCenterLocal(s) === 'TU');
+      const teams = Array.from(new Set(tuStations.map(getTeamLocal).filter(Boolean)));
+      if (teams.length > 0) {
+        teams.forEach((team) => {
+          tabGroups.push({
+            label: `TU - ${team}`,
+            rows: tuStations.filter(row => getTeamLocal(row) === team),
+          });
+        });
+      } else {
+        tabGroups.push({ label: 'TU', rows: tuStations });
+      }
+    } else {
+      tabGroups.push({
+        label: workCenter,
+        rows: data.filter(row => getWorkCenterLocal(row) === workCenter),
       });
-    
-    // Add a blank row between groups (except before the first)
-    if (idx > 0) csvRows.push('');
-    // Add the group rows with rank numbers
-    groupData.forEach((row, rowIndex) => {
-      csvRows.push(exportHeadersWithRank.map(h => {
-        if (h === '#') {
-          return '"' + (rowIndex + 1) + '"';
-        }
-        if (h === SUPPLY_COMPLETION_COLUMN) {
-          return '"' + calculateSupplyCompletionDate(row) + '"';
-        }
-        return '"' + (row[h] ?? '') + '"';
-      }).join(','));
-    });
+    }
   });
 
-  const csvContent = csvRows.join('\n');
-  // Add BOM for Excel compatibility
-  const BOM = '\uFEFF';
-  const blob = new Blob([BOM + csvContent], { type: 'text/csv;charset=utf-8;' });
-  const url = URL.createObjectURL(blob);
-  const link = document.createElement('a');
-  link.setAttribute('href', url);
-  link.setAttribute('download', 'prioritized_results.csv');
-  document.body.appendChild(link);
-  link.click();
-  document.body.removeChild(link);
+  const workbook = XLSX.utils.book_new();
+
+  tabGroups.forEach((group) => {
+    if (group.rows.length === 0) return;
+
+    const sortedRows = sortStations(group.rows);
+    const sheetData = [exportHeadersWithRank];
+
+    sortedRows.forEach((row, rowIndex) => {
+      sheetData.push(
+        exportHeadersWithRank.map((header) => {
+          if (header === '#') return rowIndex + 1;
+          if (header === SUPPLY_COMPLETION_COLUMN) return calculateSupplyCompletionDate(row);
+          if (header === 'מועד סיום צפוי' || header === 'Expected Completion Date') {
+            const expectedDate = getExpectedCompletionDate(row);
+            return expectedDate ? { v: expectedDate, t: 'd', z: 'dd.mm.yyyy' } : '';
+          }
+          return row[header] ?? '';
+        }),
+      );
+    });
+
+    const worksheet = XLSX.utils.aoa_to_sheet(sheetData);
+
+    const sanitizedName = group.label
+      .replace(/[\[\]\\\/\?\*\:]/g, '_')
+      .substring(0, 31) || 'Sheet';
+
+    XLSX.utils.book_append_sheet(workbook, worksheet, sanitizedName);
+  });
+
+  XLSX.writeFile(workbook, 'prioritized_results.xlsx', { cellDates: true });
 }
 
 function getPriorityNumber(val: string | undefined) {
