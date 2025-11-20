@@ -50,6 +50,31 @@ const getWorkCenter = (row: any) =>
 
 const getTeam = (row: any) => row['צוות'] || '';
 
+const getQuantityValue = (row: any): number | null => {
+  const allKeys = Object.keys(row);
+  const quantityKeys = allKeys.filter(key =>
+    key.includes('כמות') && (key.includes('פק') || key.includes('פקיע') || key.includes('הפקיע'))
+  );
+
+  if (quantityKeys.length === 0) return null;
+
+  for (const key of quantityKeys) {
+    const value = row[key];
+    if (value !== undefined && value !== null && value !== '' && value !== 0) {
+      const parsed = parseFloat(String(value).replace(/,/g, '').replace(/\s/g, ''));
+      if (!isNaN(parsed)) return parsed;
+    }
+  }
+
+  const fallback = row[quantityKeys[0]];
+  if (fallback !== undefined && fallback !== null && fallback !== '') {
+    const parsed = parseFloat(String(fallback).replace(/,/g, '').replace(/\s/g, ''));
+    return isNaN(parsed) ? null : parsed;
+  }
+
+  return null;
+};
+
 const getRemainingToExecute = (row: any): number | null => {
   const directKeys = [
     'יתרה לביצוע',
@@ -113,6 +138,20 @@ const getExpectedCompletionDate = (row: any): Date | null => {
 
 const sortStations = (rows: any[]) =>
   rows.slice().sort((a, b) => {
+    const remainingA = getRemainingToExecute(a);
+    const remainingB = getRemainingToExecute(b);
+    const quantityA = getQuantityValue(a);
+    const quantityB = getQuantityValue(b);
+
+    const balanceMatch = (remaining: number | null, quantity: number | null) =>
+      remaining !== null && quantity !== null && Math.abs(remaining - quantity) < 0.0001;
+
+    const balanceMatchA = balanceMatch(remainingA, quantityA);
+    const balanceMatchB = balanceMatch(remainingB, quantityB);
+
+    if (balanceMatchA && !balanceMatchB) return -1;
+    if (!balanceMatchA && balanceMatchB) return 1;
+
     const supplyDateA = getSupplyCompletionDateAsDate(a);
     const supplyDateB = getSupplyCompletionDateAsDate(b);
 
@@ -121,9 +160,6 @@ const sortStations = (rows: any[]) =>
       if (diff !== 0) return diff;
     } else if (supplyDateA && !supplyDateB) return -1;
     else if (!supplyDateA && supplyDateB) return 1;
-
-    const remainingA = getRemainingToExecute(a);
-    const remainingB = getRemainingToExecute(b);
 
     if (remainingA !== null && remainingB === null) return -1;
     if (remainingA === null && remainingB !== null) return 1;
@@ -147,34 +183,15 @@ const sortStations = (rows: any[]) =>
 
 // Helper function to get supply completion date as Date object for sorting
 const getSupplyCompletionDateAsDate = (row: any): Date | null => {
-  // Get the quantity value
-  const allKeys = Object.keys(row);
-  const quantityKeys = allKeys.filter(key => 
-    key.includes('כמות') && (key.includes('פק') || key.includes('פקיע') || key.includes('הפקיע'))
-  );
-  
-  let quantityValue = '0';
-  if (quantityKeys.length > 0) {
-    for (const key of quantityKeys) {
-      const value = row[key];
-      if (value !== undefined && value !== null && value !== '' && value !== 0) {
-        quantityValue = value;
-        break;
-      }
-    }
-    if (!quantityValue || quantityValue === '0') {
-      quantityValue = row[quantityKeys[0]] || '0';
-    }
-  }
-  
-  const quantity = parseFloat(String(quantityValue).replace(/,/g, '').replace(/\s/g, ''));
+  const quantity = getQuantityValue(row);
+  const normalizedQuantity = quantity ?? 0;
   
   const expectedDate = getExpectedCompletionDate(row);
   if (!expectedDate) return null;
   
   // Calculate supply completion date
   let supplyDate: Date;
-  if (isNaN(quantity) || quantity <= 30) {
+  if (isNaN(normalizedQuantity) || normalizedQuantity <= 30) {
     supplyDate = new Date(expectedDate);
   } else {
     supplyDate = new Date(expectedDate);
@@ -185,68 +202,23 @@ const getSupplyCompletionDateAsDate = (row: any): Date | null => {
 };
 
 const calculateSupplyCompletionDate = (row: any): string => {
-  // Get the quantity value - search all keys for quantity column
-  // Try to find the exact column name from the actual row keys
-  const allKeys = Object.keys(row);
-  const quantityKeys = allKeys.filter(key => 
-    key.includes('כמות') && (key.includes('פק') || key.includes('פקיע') || key.includes('הפקיע'))
-  );
-  
-  // Use the first matching key that has a non-zero/non-empty value, or just use the first match
-  let quantityValue = '0';
-  let foundKey = '';
-  
-  if (quantityKeys.length > 0) {
-    // Try each key and use the first one with a valid value
-    for (const key of quantityKeys) {
-      const value = row[key];
-      if (value !== undefined && value !== null && value !== '' && value !== 0) {
-        quantityValue = value;
-        foundKey = key;
-        break;
-      }
-    }
-    // If no key had a value, just use the first key (might be 0, but that's okay)
-    if (!foundKey) {
-      quantityValue = row[quantityKeys[0]];
-      foundKey = quantityKeys[0];
-    }
-  }
-  
-  const quantity = parseFloat(String(quantityValue).replace(/,/g, '').replace(/\s/g, ''));
-  
-  // Debug logging
-  console.log('=== Supply Date Calculation Debug ===');
-  console.log('All row keys:', Object.keys(row));
-  console.log('Quantity matching keys:', quantityKeys);
-  console.log('Found quantity key:', foundKey);
-  console.log('Quantity value (raw):', quantityValue);
-  console.log('Quantity value (parsed):', quantity);
-  console.log('Is quantity > 30?', quantity > 30);
+  const quantity = getQuantityValue(row);
   
   const expectedDate = getExpectedCompletionDate(row);
-  console.log('Expected date (raw):', row['מועד סיום צפוי'] || row['Expected Completion Date'] || '');
-  
   if (!expectedDate) {
-    console.log('No expected date found, returning empty');
     return '';
   }
-  console.log('Parsed expected date:', expectedDate);
   
   // Calculate supply completion date
   let supplyDate: Date;
-  if (isNaN(quantity) || quantity <= 30) {
+  if (quantity === null || isNaN(quantity) || quantity <= 30) {
     supplyDate = new Date(expectedDate);
-    console.log('Quantity <= 30, using expected date:', supplyDate);
   } else {
     supplyDate = new Date(expectedDate);
     supplyDate.setDate(supplyDate.getDate() + 28);
-    console.log('Quantity > 30, adding 28 days:', expectedDate, '->', supplyDate);
   }
   
   const result = supplyDate.toLocaleDateString('he-IL');
-  console.log('Final result:', result);
-  console.log('=== End Debug ===');
   
   return result;
 };
