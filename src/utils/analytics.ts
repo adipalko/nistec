@@ -12,35 +12,86 @@ declare global {
 }
 
 const GA_MEASUREMENT_ID = import.meta.env.VITE_GA_MEASUREMENT_ID || '';
+const DEBUG = import.meta.env.DEV; // Enable debug in development
+
+const log = (...args: any[]) => {
+  if (DEBUG) {
+    console.log('[GA]', ...args);
+  }
+};
+
+const logError = (...args: any[]) => {
+  console.error('[GA Error]', ...args);
+};
 
 export const initGA = () => {
+  log('Initializing Google Analytics...');
+  log('Measurement ID:', GA_MEASUREMENT_ID ? `${GA_MEASUREMENT_ID.substring(0, 4)}...` : 'NOT SET');
+
   if (!GA_MEASUREMENT_ID) {
-    console.warn('Google Analytics: Measurement ID not configured');
+    logError('Google Analytics: Measurement ID not configured. Set VITE_GA_MEASUREMENT_ID in .env');
     return;
   }
 
-  // Inject Google Analytics script if not already present
-  if (!document.querySelector(`script[src*="googletagmanager.com/gtag/js"]`)) {
-    const script = document.createElement('script');
-    script.async = true;
-    script.src = `https://www.googletagmanager.com/gtag/js?id=${GA_MEASUREMENT_ID}`;
-    document.head.appendChild(script);
-  }
-
-  // Initialize dataLayer
+  // Initialize dataLayer first (before script loads)
   window.dataLayer = window.dataLayer || [];
   window.gtag = function () {
     window.dataLayer.push(arguments);
   };
   window.gtag('js', new Date());
-  window.gtag('config', GA_MEASUREMENT_ID, {
-    page_path: window.location.pathname,
-  });
+
+  // Inject Google Analytics script if not already present
+  if (!document.querySelector(`script[src*="googletagmanager.com/gtag/js"]`)) {
+    log('Loading GA script...');
+    const script = document.createElement('script');
+    script.async = true;
+    script.src = `https://www.googletagmanager.com/gtag/js?id=${GA_MEASUREMENT_ID}`;
+    
+    script.onload = () => {
+      log('GA script loaded successfully');
+      window.gtag('config', GA_MEASUREMENT_ID, {
+        page_path: window.location.pathname,
+        debug_mode: DEBUG,
+      });
+      log('GA config sent');
+    };
+    
+    script.onerror = () => {
+      logError('Failed to load GA script');
+    };
+    
+    document.head.appendChild(script);
+  } else {
+    log('GA script already present');
+    // Script already exists, just send config
+    window.gtag('config', GA_MEASUREMENT_ID, {
+      page_path: window.location.pathname,
+      debug_mode: DEBUG,
+    });
+    log('GA config sent (script already loaded)');
+  }
+
+  // Verify initialization after a short delay
+  setTimeout(() => {
+    if (window.gtag && window.dataLayer) {
+      log('GA initialized successfully. dataLayer length:', window.dataLayer.length);
+    } else {
+      logError('GA initialization failed - gtag or dataLayer not available');
+    }
+  }, 1000);
 };
 
 export const trackPageView = (path: string) => {
-  if (!GA_MEASUREMENT_ID || !window.gtag) return;
+  if (!GA_MEASUREMENT_ID) {
+    log('trackPageView: Measurement ID not set');
+    return;
+  }
+  if (!window.gtag) {
+    logError('trackPageView: gtag not available');
+    return;
+  }
 
+  log('Tracking page view:', path);
   window.gtag('config', GA_MEASUREMENT_ID, {
     page_path: path,
   });
@@ -52,8 +103,16 @@ export const trackEvent = (
   label?: string,
   value?: number
 ) => {
-  if (!GA_MEASUREMENT_ID || !window.gtag) return;
+  if (!GA_MEASUREMENT_ID) {
+    log('trackEvent: Measurement ID not set');
+    return;
+  }
+  if (!window.gtag) {
+    logError('trackEvent: gtag not available');
+    return;
+  }
 
+  log('Tracking event:', { action, category, label, value });
   window.gtag('event', action, {
     event_category: category,
     event_label: label,
@@ -81,4 +140,24 @@ export const trackLogin = () => {
 export const trackLogout = () => {
   trackEvent('logout', 'authentication');
 };
+
+// Debug helper to check GA status
+export const checkGAStatus = () => {
+  const status = {
+    measurementId: GA_MEASUREMENT_ID ? `${GA_MEASUREMENT_ID.substring(0, 4)}...` : 'NOT SET',
+    gtagAvailable: typeof window.gtag === 'function',
+    dataLayerAvailable: Array.isArray(window.dataLayer),
+    dataLayerLength: window.dataLayer?.length || 0,
+    scriptLoaded: !!document.querySelector(`script[src*="googletagmanager.com/gtag/js"]`),
+    dataLayerContents: window.dataLayer || [],
+  };
+  
+  console.log('[GA Status Check]', status);
+  return status;
+};
+
+// Make it available globally for debugging in browser console
+if (typeof window !== 'undefined') {
+  (window as any).checkGAStatus = checkGAStatus;
+}
 
