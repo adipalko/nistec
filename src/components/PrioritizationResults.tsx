@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { FileDown } from 'lucide-react';
 import * as XLSX from 'xlsx';
+import { trackFileDownload } from '../utils/analytics';
 
 function formatDate(dateStr: string) {
   if (!dateStr) return '';
@@ -450,6 +451,9 @@ function exportToExcel(data: any[], headers: string[]) {
   });
 
   XLSX.writeFile(workbook, 'prioritized_results.xlsx', { cellDates: true });
+  
+  // Track Excel download
+  trackFileDownload('prioritized_results.xlsx');
 }
 
 function getPriorityNumber(val: string | undefined) {

@@ -5,6 +5,7 @@ import { FileUp, AlertCircle, Check } from 'lucide-react';
 import { storage } from '../config/firebase';
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { useAuth } from '../contexts/AuthContext';
+import { trackFileUpload } from '../utils/analytics';
 
 const FileUpload: React.FC<FileUploadProps> = ({ onFileProcessed, isProcessing }) => {
   const [dragActive, setDragActive] = useState(false);
@@ -96,6 +97,9 @@ const FileUpload: React.FC<FileUploadProps> = ({ onFileProcessed, isProcessing }
       // Update parent component
       onFileProcessed(stations);
       setSuccess(true);
+      
+      // Track file upload
+      trackFileUpload(file.name);
     } catch (err) {
       console.error('File processing error:', err);
       setError((err as Error).message || 'Failed to process file. Please try again.');

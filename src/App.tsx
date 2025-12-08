@@ -11,6 +11,7 @@ import { AuthProvider, useAuth } from './contexts/AuthContext';
 import { LogOut, ArrowLeft } from 'lucide-react';
 import PrioritizationResults from './components/PrioritizationResults';
 import UploadedFiles from './components/UploadedFiles';
+import { trackLogout } from './utils/analytics';
 
 const ProtectedApp: React.FC = () => {
   const [stations, setStations] = useState<Station[]>([]);
@@ -49,6 +50,7 @@ const ProtectedApp: React.FC = () => {
   const handleLogout = async () => {
     try {
       await logout();
+      trackLogout();
     } catch (error) {
       console.error('Failed to log out:', error);
     }

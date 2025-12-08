@@ -3,6 +3,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { LogIn, UserPlus, AlertCircle, Mail } from 'lucide-react';
 import { sendPasswordResetEmail } from 'firebase/auth';
 import { auth } from '../config/firebase';
+import { trackLogin, trackEvent } from '../utils/analytics';
 
 const Auth: React.FC = () => {
   const [isLogin, setIsLogin] = useState(true);
@@ -45,8 +46,10 @@ const Auth: React.FC = () => {
       
       if (isLogin) {
         await login(email, password);
+        trackLogin();
       } else {
         await signup(email, password);
+        trackEvent('signup', 'authentication');
       }
     } catch (err) {
       setError(isLogin 
