@@ -15,7 +15,8 @@ const GA_MEASUREMENT_ID = import.meta.env.VITE_GA_MEASUREMENT_ID || '';
 const DEBUG = import.meta.env.DEV; // Enable debug in development
 
 const log = (...args: any[]) => {
-  if (DEBUG) {
+  // Always log in development, or if explicitly enabled
+  if (DEBUG || import.meta.env.VITE_GA_DEBUG === 'true') {
     console.log('[GA]', ...args);
   }
 };
@@ -24,9 +25,15 @@ const logError = (...args: any[]) => {
   console.error('[GA Error]', ...args);
 };
 
+const logAlways = (...args: any[]) => {
+  console.log('[GA]', ...args);
+};
+
 export const initGA = () => {
-  log('Initializing Google Analytics...');
-  log('Measurement ID:', GA_MEASUREMENT_ID ? `${GA_MEASUREMENT_ID.substring(0, 4)}...` : 'NOT SET');
+  // Always log initialization attempt
+  logAlways('Initializing Google Analytics...');
+  logAlways('Environment check - VITE_GA_MEASUREMENT_ID:', import.meta.env.VITE_GA_MEASUREMENT_ID || 'undefined');
+  logAlways('Measurement ID:', GA_MEASUREMENT_ID ? `${GA_MEASUREMENT_ID.substring(0, 4)}...` : 'NOT SET');
 
   if (!GA_MEASUREMENT_ID) {
     logError('Google Analytics: Measurement ID not configured. Set VITE_GA_MEASUREMENT_ID in .env');
@@ -74,9 +81,12 @@ export const initGA = () => {
   // Verify initialization after a short delay
   setTimeout(() => {
     if (window.gtag && window.dataLayer) {
-      log('GA initialized successfully. dataLayer length:', window.dataLayer.length);
+      logAlways('GA initialized successfully. dataLayer length:', window.dataLayer.length);
+      logAlways('dataLayer contents:', window.dataLayer);
     } else {
       logError('GA initialization failed - gtag or dataLayer not available');
+      logError('gtag type:', typeof window.gtag);
+      logError('dataLayer type:', typeof window.dataLayer);
     }
   }, 1000);
 };
