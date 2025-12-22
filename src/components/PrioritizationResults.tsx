@@ -110,6 +110,12 @@ const getRemainingToExecute = (row: any): number | null => {
   return null;
 };
 
+const hasAmountToIssue = (row: any): boolean => {
+  const key = 'כמות להוציא';
+  const value = row[key];
+  return value !== undefined && value !== null && value !== '';
+};
+
 const parseDateValue = (value: any): Date | null => {
   if (value === undefined || value === null || value === '') return null;
   const dateStr = String(value);
@@ -139,6 +145,14 @@ const getExpectedCompletionDate = (row: any): Date | null => {
 
 const sortStations = (rows: any[]) =>
   rows.slice().sort((a, b) => {
+    // First priority: rows with "כמות להוציא" not blank come first
+    const hasAmountA = hasAmountToIssue(a);
+    const hasAmountB = hasAmountToIssue(b);
+
+    if (hasAmountA && !hasAmountB) return -1;
+    if (!hasAmountA && hasAmountB) return 1;
+
+    // Continue with existing prioritization criteria
     const remainingA = getRemainingToExecute(a);
     const remainingB = getRemainingToExecute(b);
     const quantityA = getQuantityValue(a);

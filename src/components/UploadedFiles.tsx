@@ -23,6 +23,7 @@ const UploadedFiles: React.FC<UploadedFilesProps> = ({ onShowResults }) => {
   const [files, setFiles] = useState<FileMetadata[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [downloadError, setDownloadError] = useState<string | null>(null);
   const { currentUser } = useAuth();
 
   const fetchFiles = async () => {
@@ -69,7 +70,19 @@ const UploadedFiles: React.FC<UploadedFilesProps> = ({ onShowResults }) => {
 
   const handleDownload = async (file: FileMetadata) => {
     try {
-      const response = await fetch(file.downloadURL);
+      setDownloadError(null);
+      
+      // Get a fresh download URL in case the stored one expired
+      const fileRef = ref(storage, file.fullPath);
+      const freshDownloadURL = await getDownloadURL(fileRef);
+      
+      // Try to download using the fresh URL
+      const response = await fetch(freshDownloadURL);
+      
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+      
       const blob = await response.blob();
       const url = window.URL.createObjectURL(blob);
       const a = document.createElement('a');
@@ -77,11 +90,21 @@ const UploadedFiles: React.FC<UploadedFilesProps> = ({ onShowResults }) => {
       a.download = file.originalName;
       document.body.appendChild(a);
       a.click();
-      window.URL.revokeObjectURL(url);
-      document.body.removeChild(a);
+      
+      // Clean up
+      setTimeout(() => {
+        window.URL.revokeObjectURL(url);
+        document.body.removeChild(a);
+      }, 100);
     } catch (err) {
       console.error('Error downloading file:', err);
-      setError('Failed to download file. Please try again.');
+      const errorMessage = err instanceof Error ? err.message : 'Unknown error';
+      setDownloadError(`Failed to download "${file.originalName}": ${errorMessage}`);
+      
+      // Clear error after 5 seconds
+      setTimeout(() => {
+        setDownloadError(null);
+      }, 5000);
     }
   };
 
@@ -130,6 +153,12 @@ const UploadedFiles: React.FC<UploadedFilesProps> = ({ onShowResults }) => {
 
   return (
     <div className="p-4">
+      {downloadError && (
+        <div className="mb-4 flex items-center p-4 text-red-600 bg-red-50 rounded-lg">
+          <AlertCircle className="mr-2 flex-shrink-0" />
+          <p className="text-sm">{downloadError}</p>
+        </div>
+      )}
       <div className="bg-white rounded-lg shadow overflow-hidden">
         <table className="min-w-full divide-y divide-gray-200">
           <thead className="bg-gray-50">
