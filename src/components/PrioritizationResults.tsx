@@ -42,6 +42,29 @@ function formatTime(timeStr: any) {
 
 const HIDDEN_COLUMNS = ['איש הנדסה', 'פעולה', 'צוות', 'תאור מוצר'];
 
+/** Report date like 30/03/2026 (matches common Hebrew spreadsheet style). */
+function formatReportBannerDate(): string {
+  return new Date().toLocaleDateString('en-GB');
+}
+
+/** Tab title: TU + team → "צוות …", otherwise work center label. */
+function getTabBannerTitle(workCenter: string, team: string | null | undefined): string {
+  if (workCenter === 'TU' && team) {
+    const t = String(team).trim();
+    return t.startsWith('צוות') ? t : `צוות ${t}`;
+  }
+  return workCenter;
+}
+
+function getTabBannerTitleFromExportGroup(group: { label: string }): string {
+  const { label } = group;
+  if (label.startsWith('TU - ')) {
+    const team = label.slice(5).trim();
+    return team.startsWith('צוות') ? team : `צוות ${team}`;
+  }
+  return label;
+}
+
 interface PrioritizationResultsProps {
   stations: any[];
 }
@@ -339,48 +362,69 @@ const PrioritizationResults: React.FC<PrioritizationResultsProps> = ({ stations 
           ))}
         </div>
       )}
-      {prioritized.length === 0 ? (
-        <div className="text-gray-500 p-4">No stations found for this type.</div>
-      ) : (
-        <table className="min-w-full divide-y divide-gray-200">
-          <thead className="bg-gray-50">
-            <tr>
-              <th key="rank" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                #
-              </th>
-              {headersWithCalculated.map((header) => (
-                <th key={header} className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  {header}
+      <div
+        className="rounded-lg border border-gray-200 overflow-hidden bg-white"
+        dir="rtl"
+      >
+        <div className="flex flex-row items-end justify-start gap-3 bg-gray-50 px-4 pt-3 pb-6 border-b border-gray-200">
+          <div className="min-w-0 border-t-4 border-green-600 pt-2 text-start">
+            <span className="text-lg font-bold text-gray-900">
+              {getTabBannerTitle(selectedWorkCenter, selectedWorkCenter === 'TU' ? selectedTeam : null)}
+            </span>
+          </div>
+          <div className="text-sm text-gray-600 shrink-0 pb-0.5 tabular-nums">
+            {formatReportBannerDate()}
+          </div>
+        </div>
+        {prioritized.length === 0 ? (
+          <div className="text-gray-500 p-4 pt-6 text-start">No stations found for this type.</div>
+        ) : (
+          <table className="min-w-full divide-y divide-gray-200 mt-4">
+            <thead className="bg-gray-50">
+              <tr>
+                <th
+                  key="rank"
+                  className="px-6 py-3 text-start text-xs font-medium text-gray-500 uppercase tracking-wider"
+                >
+                  עדיפות
                 </th>
-              ))}
-            </tr>
-          </thead>
-          <tbody className="bg-white divide-y divide-gray-200">
-            {prioritized.map((row, rowIndex) => (
-              <tr key={rowIndex} className="hover:bg-gray-50">
-                <td className="px-6 py-4 whitespace-nowrap">
-                  <div className="text-sm font-medium text-gray-900">
-                    {rowIndex + 1}
-                  </div>
-                </td>
                 {headersWithCalculated.map((header) => (
-                  <td key={header} className="px-6 py-4 whitespace-nowrap">
-                    <div className="text-sm text-gray-900">
-                      {header === 'תאריך סיום אספקות'
-                        ? calculateSupplyCompletionDate(row)
-                        : header === 'מועד סיום צפוי' || header === 'Expected Completion Date'
-                        ? formatDate(row[header])
-                        : header.includes('זמן תקן')
-                        ? formatTime(row[header])
-                        : row[header]}
-                    </div>
-                  </td>
+                  <th
+                    key={header}
+                    className="px-6 py-3 text-start text-xs font-medium text-gray-500 uppercase tracking-wider"
+                  >
+                    {header}
+                  </th>
                 ))}
               </tr>
-            ))}
-          </tbody>
-        </table>
-      )}
+            </thead>
+            <tbody className="bg-white divide-y divide-gray-200">
+              {prioritized.map((row, rowIndex) => (
+                <tr key={rowIndex} className="hover:bg-gray-50">
+                  <td className="px-6 py-4 whitespace-nowrap">
+                    <div className="text-sm font-medium text-gray-900">
+                      {rowIndex + 1}
+                    </div>
+                  </td>
+                  {headersWithCalculated.map((header) => (
+                    <td key={header} className="px-6 py-4 whitespace-nowrap">
+                      <div className="text-sm text-gray-900">
+                        {header === 'תאריך סיום אספקות'
+                          ? calculateSupplyCompletionDate(row)
+                          : header === 'מועד סיום צפוי' || header === 'Expected Completion Date'
+                          ? formatDate(row[header])
+                          : header.includes('זמן תקן')
+                          ? formatTime(row[header])
+                          : row[header]}
+                      </div>
+                    </td>
+                  ))}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </div>
     </div>
   );
 };
@@ -402,7 +446,7 @@ function exportToExcel(data: any[], headers: string[]) {
     exportHeaders = [...headers, SUPPLY_COMPLETION_COLUMN];
   }
 
-  const exportHeadersWithRank = ['#', ...exportHeaders];
+  const exportHeadersWithRank = ['עדיפות', ...exportHeaders];
 
   const getWorkCenterLocal = (row: any) =>
     row['מרכז עבודה'] || row['Station Name'] || row['תחנה'] || row['תחנת עבודה'] || row['station'] || '';
@@ -434,17 +478,25 @@ function exportToExcel(data: any[], headers: string[]) {
   });
 
   const workbook = XLSX.utils.book_new();
+  workbook.Workbook = { Views: [{ RTL: true }] };
 
   tabGroups.forEach((group) => {
     if (group.rows.length === 0) return;
 
     const sortedRows = sortStations(group.rows);
-    const sheetData = [exportHeadersWithRank];
+    const colCount = exportHeadersWithRank.length;
+    const bannerRow: string[] = Array(colCount).fill('');
+    // RTL: A is the rightmost column — title in A, date in B (adjacent).
+    bannerRow[0] = getTabBannerTitleFromExportGroup(group);
+    bannerRow[1] = formatReportBannerDate();
+
+    const spacerRow: string[] = Array(colCount).fill('');
+    const sheetData = [bannerRow, spacerRow, exportHeadersWithRank];
 
     sortedRows.forEach((row, rowIndex) => {
       sheetData.push(
         exportHeadersWithRank.map((header) => {
-          if (header === '#') return rowIndex + 1;
+          if (header === 'עדיפות') return rowIndex + 1;
           if (header === SUPPLY_COMPLETION_COLUMN) return calculateSupplyCompletionDate(row);
           if (header === 'מועד סיום צפוי' || header === 'Expected Completion Date') {
             const expectedDate = getExpectedCompletionDate(row);
